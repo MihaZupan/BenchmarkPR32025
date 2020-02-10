@@ -69,6 +69,22 @@ namespace BenchmarkPR32025
             return vsb.Length;
         }
 
+        [Benchmark]
+        public unsafe int Rune()
+        {
+            ValueStringBuilder vsb = new ValueStringBuilder(TargetBuffer);
+
+            fixed (char* pInput = TestUri)
+            {
+                for (int i = 0; i < TestUri.Length; i += 2)
+                {
+                    RuneCore(ref vsb, pInput + i);
+                }
+            }
+
+            return vsb.Length;
+        }
+
         private static unsafe void UnsafeCore(ref ValueStringBuilder dest, char* pInput)
         {
             bool surrogatePair = char.IsSurrogatePair(*pInput, *(pInput + 1));
@@ -103,6 +119,20 @@ namespace BenchmarkPR32025
             for (int i = 0; i < encodedBytesCount; i++)
             {
                 UriHelper.EscapeAsciiChar((char)encodedBytes[i], ref dest);
+            }
+        }
+
+        private static unsafe void RuneCore(ref ValueStringBuilder dest, char* pInput)
+        {
+            bool surrogatePair = char.IsSurrogatePair(*pInput, *(pInput + 1));
+            Span<byte> encodedBytes = stackalloc byte[MaxNumberOfBytesEncoded];
+            Rune rune = (surrogatePair) ? new Rune(*pInput, *(pInput + 1)) : new Rune(*pInput);
+            int encodedBytesCount = rune.EncodeToUtf8(encodedBytes);
+            encodedBytes = encodedBytes.Slice(0, encodedBytesCount);
+
+            foreach (byte b in encodedBytes)
+            {
+                UriHelper.EscapeAsciiChar((char)b, ref dest);
             }
         }
     }
