@@ -28,7 +28,8 @@ namespace BenchmarkPR32025
             {
                 for (int i = 0; i < TestUri.Length; i += 2)
                 {
-                    UnsafeCore(ref vsb, pInput + i);
+                    bool surrogatePair = char.IsSurrogatePair(pInput[i], pInput[i + 1]);
+                    UnsafeCore(ref vsb, pInput + i, surrogatePair);
                 }
             }
 
@@ -44,7 +45,8 @@ namespace BenchmarkPR32025
             {
                 for (int i = 0; i < TestUri.Length; i += 2)
                 {
-                    SpanCore(ref vsb, pInput + i);
+                    bool surrogatePair = char.IsSurrogatePair(pInput[i], pInput[i + 1]);
+                    SpanCore(ref vsb, pInput + i, surrogatePair);
                 }
             }
 
@@ -62,7 +64,8 @@ namespace BenchmarkPR32025
             {
                 for (int i = 0; i < TestUri.Length; i += 2)
                 {
-                    SpanSliceCore(ref vsb, pInput + i);
+                    bool surrogatePair = char.IsSurrogatePair(pInput[i], pInput[i + 1]);
+                    SpanSliceCore(ref vsb, pInput + i, surrogatePair);
                 }
             }
 
@@ -78,16 +81,33 @@ namespace BenchmarkPR32025
             {
                 for (int i = 0; i < TestUri.Length; i += 2)
                 {
-                    RuneCore(ref vsb, pInput + i);
+                    bool surrogatePair = char.IsSurrogatePair(pInput[i], pInput[i + 1]);
+                    RuneCore(ref vsb, pInput + i, surrogatePair);
                 }
             }
 
             return vsb.Length;
         }
 
-        private static unsafe void UnsafeCore(ref ValueStringBuilder dest, char* pInput)
+        [Benchmark]
+        public unsafe int UnsafeUnsafe()
         {
-            bool surrogatePair = char.IsSurrogatePair(*pInput, *(pInput + 1));
+            ValueStringBuilder vsb = new ValueStringBuilder(TargetBuffer);
+
+            fixed (char* pInput = TestUri)
+            {
+                for (int i = 0; i < TestUri.Length; i += 2)
+                {
+                    bool surrogatePair = char.IsSurrogatePair(pInput[i], pInput[i + 1]);
+                    UnsafeUnsafeCore(ref vsb, pInput + i, surrogatePair);
+                }
+            }
+
+            return vsb.Length;
+        }
+
+        private static unsafe void UnsafeCore(ref ValueStringBuilder dest, char* pInput, bool surrogatePair)
+        {
             int encodedBytesBuffer;
             byte* pEncodedBytes = (byte*)&encodedBytesBuffer;
 
@@ -99,9 +119,8 @@ namespace BenchmarkPR32025
                 UriHelper.EscapeAsciiChar((char)*(pEncodedBytes + count), ref dest);
             }
         }
-        private static unsafe void SpanSliceCore(ref ValueStringBuilder dest, char* pInput)
+        private static unsafe void SpanSliceCore(ref ValueStringBuilder dest, char* pInput, bool surrogatePair)
         {
-            bool surrogatePair = char.IsSurrogatePair(*pInput, *(pInput + 1));
             Span<byte> encodedBytes = stackalloc byte[MaxNumberOfBytesEncoded];
             int encodedBytesCount = Encoding.UTF8.GetBytes(new ReadOnlySpan<char>(pInput, surrogatePair ? 2 : 1), encodedBytes);
             encodedBytes = encodedBytes.Slice(0, encodedBytesCount);
@@ -111,9 +130,8 @@ namespace BenchmarkPR32025
                 UriHelper.EscapeAsciiChar((char)b, ref dest);
             }
         }
-        private static unsafe void SpanCore(ref ValueStringBuilder dest, char* pInput)
+        private static unsafe void SpanCore(ref ValueStringBuilder dest, char* pInput, bool surrogatePair)
         {
-            bool surrogatePair = char.IsSurrogatePair(*pInput, *(pInput + 1));
             Span<byte> encodedBytes = stackalloc byte[MaxNumberOfBytesEncoded];
             int encodedBytesCount = Encoding.UTF8.GetBytes(new ReadOnlySpan<char>(pInput, surrogatePair ? 2 : 1), encodedBytes);
             for (int i = 0; i < encodedBytesCount; i++)
@@ -122,9 +140,8 @@ namespace BenchmarkPR32025
             }
         }
 
-        private static unsafe void RuneCore(ref ValueStringBuilder dest, char* pInput)
+        private static unsafe void RuneCore(ref ValueStringBuilder dest, char* pInput, bool surrogatePair)
         {
-            bool surrogatePair = char.IsSurrogatePair(*pInput, *(pInput + 1));
             Span<byte> encodedBytes = stackalloc byte[MaxNumberOfBytesEncoded];
             Rune rune = (surrogatePair) ? new Rune(*pInput, *(pInput + 1)) : new Rune(*pInput);
             int encodedBytesCount = rune.EncodeToUtf8(encodedBytes);
@@ -133,6 +150,20 @@ namespace BenchmarkPR32025
             foreach (byte b in encodedBytes)
             {
                 UriHelper.EscapeAsciiChar((char)b, ref dest);
+            }
+        }
+
+        private static unsafe void UnsafeUnsafeCore(ref ValueStringBuilder dest, char* pInput, bool surrogatePair)
+        {
+            int encodedBytesBuffer;
+            byte* pEncodedBytes = (byte*)&encodedBytesBuffer;
+
+            uint value = surrogatePair ? (uint)char.ConvertToUtf32(*pInput, *(pInput + 1)) : (uint)*pInput;
+            UnsafeEncoding.EncodeToUtf8(value, pEncodedBytes, out int bytesWritten);
+
+            for (int i = 0; i < bytesWritten; i++)
+            {
+                UriHelper.EscapeAsciiChar((char)*(pEncodedBytes + i), ref dest);
             }
         }
     }
